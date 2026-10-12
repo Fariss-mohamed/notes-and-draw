@@ -6,8 +6,8 @@ import {
   Italic,
   List,
   CheckSquare,
-  Code,
   Quote,
+  Code,
 } from 'lucide-react';
 
 interface TextEditorProps {
@@ -43,82 +43,76 @@ export const TextEditor: FC<TextEditorProps> = ({ content, onChange }) => {
   };
 
   const wordCount = content.trim() ? content.trim().split(/\s+/).length : 0;
-  const charCount = content.length;
 
   return (
-    <div className="text-editor-container">
-      {/* Quick Formatting Toolbar */}
-      <div className="text-editor-toolbar">
-        <button
-          className="btn-format"
-          onClick={() => insertFormatting('## ')}
-          title="Heading (## )"
-        >
-          <Heading size={16} />
-        </button>
-        <button
-          className="btn-format"
-          onClick={() => insertFormatting('**', '**')}
-          title="Bold (**text**)"
-        >
-          <Bold size={16} />
-        </button>
-        <button
-          className="btn-format"
-          onClick={() => insertFormatting('*', '*')}
-          title="Italic (*text*)"
-        >
-          <Italic size={16} />
-        </button>
-
-        <div className="format-divider" />
-
-        <button
-          className="btn-format"
-          onClick={() => insertFormatting('- ')}
-          title="Bullet List (- )"
-        >
-          <List size={16} />
-        </button>
-        <button
-          className="btn-format"
-          onClick={() => insertFormatting('- [ ] ')}
-          title="Task Checkbox (- [ ] )"
-        >
-          <CheckSquare size={16} />
-        </button>
-        <button
-          className="btn-format"
-          onClick={() => insertFormatting('> ')}
-          title="Blockquote (> )"
-        >
-          <Quote size={16} />
-        </button>
-        <button
-          className="btn-format"
-          onClick={() => insertFormatting('`', '`')}
-          title="Inline Code (`code`)"
-        >
-          <Code size={16} />
-        </button>
-      </div>
-
-      {/* Textarea */}
+    <div className="clean-text-editor">
+      {/* Seamless Writing Area matching reference image */}
       <textarea
         ref={textareaRef}
-        className="text-editor-body"
+        className="document-body-textarea"
         value={content}
         onChange={(e) => onChange(e.target.value)}
-        placeholder="Type your notes here... You can write summaries, definitions, lecture bullet points, or formulas."
+        placeholder="Start typing..."
         spellCheck="true"
       />
 
-      {/* Footer Info */}
-      <div className="text-editor-footer">
-        <span>Markdown formatting supported</span>
-        <span>
-          {wordCount} {wordCount === 1 ? 'word' : 'words'} • {charCount} characters
-        </span>
+      {/* Subtle Floating Bottom Formatting Toolbar */}
+      <div className="text-floating-toolbar">
+        <button
+          className="btn-format-tool"
+          onClick={() => insertFormatting('## ')}
+          title="Heading"
+        >
+          <Heading size={15} />
+        </button>
+        <button
+          className="btn-format-tool"
+          onClick={() => insertFormatting('**', '**')}
+          title="Bold"
+        >
+          <Bold size={15} />
+        </button>
+        <button
+          className="btn-format-tool"
+          onClick={() => insertFormatting('*', '*')}
+          title="Italic"
+        >
+          <Italic size={15} />
+        </button>
+        <div className="format-separator" />
+        <button
+          className="btn-format-tool"
+          onClick={() => insertFormatting('- ')}
+          title="Bullet List"
+        >
+          <List size={15} />
+        </button>
+        <button
+          className="btn-format-tool"
+          onClick={() => insertFormatting('- [ ] ')}
+          title="Checklist"
+        >
+          <CheckSquare size={15} />
+        </button>
+        <button
+          className="btn-format-tool"
+          onClick={() => insertFormatting('> ')}
+          title="Quote"
+        >
+          <Quote size={15} />
+        </button>
+        <button
+          className="btn-format-tool"
+          onClick={() => insertFormatting('`', '`')}
+          title="Code"
+        >
+          <Code size={15} />
+        </button>
+        {wordCount > 0 && (
+          <span className="text-stats-counter">
+            {wordCount} {wordCount === 1 ? 'word' : 'words'}
+          </span>
+        )}
       </div>
     </div>
   );

@@ -6,14 +6,12 @@ import {
   Undo2,
   Redo2,
   Trash2,
-  ZoomIn,
-  ZoomOut,
-  Maximize2,
-  Minimize2,
+  Grid,
+  FilePlus,
   ChevronLeft,
   ChevronRight,
-  Plus,
-  FileMinus,
+  Maximize2,
+  Minimize2,
 } from 'lucide-react';
 import type { CanvasPage, ToolType, BackgroundType, Stroke, Point } from '../types';
 import {
@@ -33,11 +31,10 @@ interface DrawingCanvasProps {
   onSwitchPage: (newIndex: number) => void;
 }
 
-// Curated harmonious color palette
+// Curated color palette
 const PRESET_COLORS = [
   '#0f172a', // Deep Charcoal
   '#2563eb', // Royal Blue
-  '#1d4ed8', // Dark Navy
   '#dc2626', // Crimson Red
   '#16a34a', // Forest Green
   '#7c3aed', // Violet
@@ -75,6 +72,9 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
   const currentStrokeRef = useRef<Stroke | null>(null);
   const activePointerIdRef = useRef<number | null>(null);
 
+  // Popover menus state: 'none' | 'color' | 'size' | 'background' | 'pages'
+  const [activePopover, setActivePopover] = useState<'none' | 'color' | 'size' | 'background' | 'pages'>('none');
+
   // Undo/Redo stacks
   const [redoStack, setRedoStack] = useState<Stroke[]>([]);
 
@@ -86,7 +86,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
   const [showClearConfirm, setShowClearConfirm] = useState<boolean>(false);
   const [showDeletePageConfirm, setShowDeletePageConfirm] = useState<boolean>(false);
 
-  // Sheet dimensions (standard digital notebook paper aspect ratio ~3:4 or A4 ratio 850x1100)
+  // Digital notebook sheet dimensions (standard 3:4 aspect ratio ~900x1200)
   const SHEET_WIDTH = 900;
   const SHEET_HEIGHT = 1200;
 
@@ -111,15 +111,17 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
     }
   }, [page.background, page.strokes]);
 
-  // Handle mobile screen width auto-scaling on mount and device rotation
+  // Handle mobile screen width auto-scaling on mount and resize
   useEffect(() => {
     const handleScreenResize = () => {
       if (containerRef.current) {
         const availableW = containerRef.current.clientWidth;
         if (availableW < 940) {
-          // On mobile screens, fit paper width smoothly with slight margin
-          const optimalZoom = Math.min(1, Math.max(0.35, (availableW - 32) / SHEET_WIDTH));
+          // On mobile screens, fit paper width smoothly with comfortable margin
+          const optimalZoom = Math.min(1, Math.max(0.32, (availableW - 24) / SHEET_WIDTH));
           setZoomLevel(Number(optimalZoom.toFixed(2)));
+        } else {
+          setZoomLevel(1);
         }
       }
     };
@@ -167,33 +169,29 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
     redrawCanvas();
   }, [redrawCanvas]);
 
-  // Keyboard shortcuts (Ctrl+Z, Ctrl+Y, Ctrl+Shift+Z)
+  // Keyboard shortcuts (Ctrl+Z, Ctrl+Y)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Don't trigger if typing in an input or textarea
       if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement)?.tagName)) {
         return;
       }
-
       if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
         if (e.shiftKey) {
           handleRedo();
         } else {
           handleUndo();
         }
-        e.preventDefault();
       } else if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
         handleRedo();
-        e.preventDefault();
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  });
+  }, [page.strokes, redoStack]);
 
-  // Calculate coordinates relative to canvas sheet
-  const getCanvasCoords = (e: React.PointerEvent<HTMLCanvasElement>): Point => {
+  // Extract pointer coordinates relative to sheet
+  const getCanvasCoordinates = (e: React.PointerEvent<HTMLCanvasElement>): Point => {
     const canvas = canvasRef.current;
     if (!canvas) return { x: 0, y: 0 };
     const rect = canvas.getBoundingClientRect();
@@ -203,72 +201,55 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
     return {
       x: (e.clientX - rect.left) * scaleX,
       y: (e.clientY - rect.top) * scaleY,
-      pressure: e.pressure > 0 ? e.pressure : 0.5,
+      pressure: e.pressure && e.pressure > 0 ? e.pressure : 0.5,
     };
   };
 
-  // Pointer Down
+  // Pointer Down (touch or stylus or mouse)
   const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (e.button !== 0 && e.pointerType === 'mouse') return; // Left click only
+    // Close any open popovers on drawing
+    if (activePopover !== 'none') setActivePopover('none');
+
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    // Palm rejection: if already drawing with a pointer, ignore new touches
-    if (activePointerIdRef.current !== null && activePointerIdRef.current !== e.pointerId) {
+    canvas.setPointerCapture(e.pointerId);
+    activePointerIdRef.current = e.pointerId;
+
+    const point = getCanvasCoordinates(e);
+
+    if (activeTool === 'eraser') {
+      setIsDrawing(true);
+      handleEraseAtPoint(point);
       return;
     }
 
-    activePointerIdRef.current = e.pointerId;
-
-    // Capture pointer for continuous tracking outside canvas boundary
-    try {
-      canvas.setPointerCapture(e.pointerId);
-    } catch {
-      // Ignored if capture unsupported
-    }
-
-    const point = getCanvasCoords(e);
     setIsDrawing(true);
+    const newStroke: Stroke = {
+      id: 'stroke_' + Math.random().toString(36).substring(2, 9),
+      tool: activeTool,
+      color: activeTool === 'highlighter' ? activeColor : activeColor,
+      width: activeTool === 'highlighter' ? Math.max(strokeWidth * 3, 20) : strokeWidth,
+      opacity: activeTool === 'highlighter' ? 0.35 : 1,
+      points: [point],
+    };
 
-    if (activeTool === 'eraser') {
-      // Stroke eraser: check if touched any existing stroke
-      eraseAtPoint(point);
-    } else {
-      // Calculate tool specific properties
-      let effWidth = strokeWidth;
-      let effOpacity = 1;
-
-      if (activeTool === 'highlighter') {
-        effWidth = Math.max(strokeWidth * 3.5, 24);
-        effOpacity = 0.35;
-      } else if (activeTool === 'pencil') {
-        effOpacity = 0.8;
-      }
-
-      const newStroke: Stroke = {
-        id: 'stroke_' + Math.random().toString(36).substring(2, 9),
-        tool: activeTool,
-        color: activeColor,
-        width: effWidth,
-        opacity: effOpacity,
-        points: [point],
-      };
-
-      currentStrokeRef.current = newStroke;
-      redrawCanvas();
-    }
+    currentStrokeRef.current = newStroke;
+    redrawCanvas();
   };
 
   // Pointer Move
   const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!isDrawing) return;
-    if (activePointerIdRef.current !== null && activePointerIdRef.current !== e.pointerId) return;
+    if (!isDrawing || activePointerIdRef.current !== e.pointerId) return;
 
-    const point = getCanvasCoords(e);
+    const point = getCanvasCoordinates(e);
 
     if (activeTool === 'eraser') {
-      eraseAtPoint(point);
-    } else if (currentStrokeRef.current) {
+      handleEraseAtPoint(point);
+      return;
+    }
+
+    if (currentStrokeRef.current) {
       currentStrokeRef.current.points.push(point);
       redrawCanvas();
     }
@@ -276,22 +257,25 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
 
   // Pointer Up / Cancel
   const handlePointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (activePointerIdRef.current === e.pointerId) {
+      const canvas = canvasRef.current;
+      if (canvas && canvas.hasPointerCapture(e.pointerId)) {
+        canvas.releasePointerCapture(e.pointerId);
+      }
+      activePointerIdRef.current = null;
+    }
+
     if (!isDrawing) return;
-    if (activePointerIdRef.current !== null && activePointerIdRef.current !== e.pointerId) return;
-
     setIsDrawing(false);
-    activePointerIdRef.current = null;
 
-    try {
-      canvasRef.current?.releasePointerCapture(e.pointerId);
-    } catch {
-      // Pointer capture might have already been released
+    if (activeTool === 'eraser') {
+      return;
     }
 
     if (currentStrokeRef.current && currentStrokeRef.current.points.length > 0) {
       const updatedStrokes = [...page.strokes, currentStrokeRef.current];
       currentStrokeRef.current = null;
-      setRedoStack([]); // Clear redo on new action
+      setRedoStack([]);
       onUpdatePage({
         ...page,
         strokes: updatedStrokes,
@@ -299,11 +283,14 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
     }
   };
 
-  // Erase stroke touched by pointer
-  const eraseAtPoint = (point: Point) => {
-    const hits = page.strokes.some((stroke) => hitTestStroke(stroke, point, 18));
-    if (hits) {
-      const remainingStrokes = page.strokes.filter((stroke) => !hitTestStroke(stroke, point, 18));
+  // Erase strokes intersecting target point
+  const handleEraseAtPoint = (point: Point) => {
+    const eraserRadius = strokeWidth * 3;
+    const remainingStrokes = page.strokes.filter((stroke) => {
+      return !hitTestStroke(stroke, point, eraserRadius);
+    });
+
+    if (remainingStrokes.length !== page.strokes.length) {
       onUpdatePage({
         ...page,
         strokes: remainingStrokes,
@@ -316,7 +303,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
     if (page.strokes.length === 0) return;
     const lastStroke = page.strokes[page.strokes.length - 1];
     const newStrokes = page.strokes.slice(0, -1);
-    setRedoStack((prev) => [lastStroke, ...prev]);
+    setRedoStack((prev) => [...prev, lastStroke]);
     onUpdatePage({
       ...page,
       strokes: newStrokes,
@@ -326,16 +313,18 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
   // Redo
   const handleRedo = () => {
     if (redoStack.length === 0) return;
-    const strokeToRestore = redoStack[0];
-    setRedoStack((prev) => prev.slice(1));
+    const strokeToRestore = redoStack[redoStack.length - 1];
+    const newRedoStack = redoStack.slice(0, -1);
+    const newStrokes = [...page.strokes, strokeToRestore];
+    setRedoStack(newRedoStack);
     onUpdatePage({
       ...page,
-      strokes: [...page.strokes, strokeToRestore],
+      strokes: newStrokes,
     });
   };
 
   // Clear Canvas
-  const handleConfirmClear = () => {
+  const handleClearPage = () => {
     setRedoStack([]);
     onUpdatePage({
       ...page,
@@ -343,168 +332,27 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
     });
   };
 
-  // Background Change
+  // Change Background Paper
   const handleChangeBackground = (bg: BackgroundType) => {
     onUpdatePage({
       ...page,
       background: bg,
     });
+    setActivePopover('none');
+  };
+
+  const togglePopover = (type: 'color' | 'size' | 'background' | 'pages') => {
+    setActivePopover((prev) => (prev === type ? 'none' : type));
   };
 
   return (
-    <div className="canvas-wrapper" ref={containerRef}>
-      {/* Floating Drawing Toolbar */}
-      <div className="canvas-toolbar-container">
-        {/* Tools: Pen, Pencil, Highlighter, Eraser */}
-        <div className="tool-group">
-          <button
-            className={`btn-tool ${activeTool === 'pen' ? 'active' : ''}`}
-            onClick={() => setActiveTool('pen')}
-            title="Pen (Natural ink with pressure)"
-          >
-            <Pen size={18} />
-          </button>
-          <button
-            className={`btn-tool ${activeTool === 'pencil' ? 'active' : ''}`}
-            onClick={() => setActiveTool('pencil')}
-            title="Pencil (Soft graphite touch)"
-          >
-            <span style={{ fontSize: '1.05rem', fontWeight: 700, fontFamily: 'serif' }}>✎</span>
-          </button>
-          <button
-            className={`btn-tool ${activeTool === 'highlighter' ? 'active' : ''}`}
-            onClick={() => {
-              setActiveTool('highlighter');
-              // Auto-switch to pastel yellow if current color is dark
-              if (activeColor === '#0f172a') setActiveColor('#fef08a');
-            }}
-            title="Highlighter (Wide translucent glow)"
-          >
-            <Highlighter size={18} />
-          </button>
-          <button
-            className={`btn-tool ${activeTool === 'eraser' ? 'active' : ''}`}
-            onClick={() => setActiveTool('eraser')}
-            title="Eraser (Tap or drag to remove strokes)"
-          >
-            <Eraser size={18} />
-          </button>
-        </div>
-
-        <div className="toolbar-divider" />
-
-        {/* Color Palette (disabled in eraser mode) */}
-        {activeTool !== 'eraser' && (
-          <div className="color-swatches">
-            {PRESET_COLORS.map((c) => (
-              <button
-                key={c}
-                className={`color-swatch-btn ${activeColor === c ? 'active' : ''}`}
-                style={{ backgroundColor: c }}
-                onClick={() => setActiveColor(c)}
-                title={`Color: ${c}`}
-              />
-            ))}
-            <input
-              type="color"
-              className="custom-color-input"
-              value={activeColor}
-              onChange={(e) => setActiveColor(e.target.value)}
-              title="Custom Color"
-            />
-          </div>
-        )}
-
-        {activeTool !== 'eraser' && <div className="toolbar-divider" />}
-
-        {/* Stroke Thickness Presets */}
-        {activeTool !== 'eraser' && (
-          <div className="stroke-sizes">
-            {STROKE_WIDTHS.map((sw) => (
-              <button
-                key={sw.value}
-                className={`btn-stroke-size ${strokeWidth === sw.value ? 'active' : ''}`}
-                onClick={() => setStrokeWidth(sw.value)}
-                title={`${sw.label} thickness (${sw.value}px)`}
-              >
-                <div
-                  className="stroke-dot-preview"
-                  style={{
-                    width: sw.size,
-                    height: sw.size,
-                  }}
-                />
-              </button>
-            ))}
-          </div>
-        )}
-
-        <div className="toolbar-divider" />
-
-        {/* Paper Background Style */}
-        <div className="bg-selector">
-          <button
-            className={`btn-bg-type ${page.background === 'plain' ? 'active' : ''}`}
-            onClick={() => handleChangeBackground('plain')}
-            title="Plain White Paper"
-          >
-            Plain
-          </button>
-          <button
-            className={`btn-bg-type ${page.background === 'lined' ? 'active' : ''}`}
-            onClick={() => handleChangeBackground('lined')}
-            title="Ruled / Lined Notebook Paper"
-          >
-            Lined
-          </button>
-          <button
-            className={`btn-bg-type ${page.background === 'graph' ? 'active' : ''}`}
-            onClick={() => handleChangeBackground('graph')}
-            title="Grid / Graph Math Paper"
-          >
-            Graph
-          </button>
-          <button
-            className={`btn-bg-type ${page.background === 'dotted' ? 'active' : ''}`}
-            onClick={() => handleChangeBackground('dotted')}
-            title="Dotted Bullet Journal Paper"
-          >
-            Dotted
-          </button>
-        </div>
-
-        <div className="toolbar-divider" />
-
-        {/* Undo / Redo / Clear */}
-        <div className="tool-group">
-          <button
-            className="btn-tool"
-            onClick={handleUndo}
-            disabled={page.strokes.length === 0}
-            title="Undo (Ctrl+Z)"
-          >
-            <Undo2 size={18} />
-          </button>
-          <button
-            className="btn-tool"
-            onClick={handleRedo}
-            disabled={redoStack.length === 0}
-            title="Redo (Ctrl+Y)"
-          >
-            <Redo2 size={18} />
-          </button>
-          <button
-            className="btn-tool"
-            onClick={() => setShowClearConfirm(true)}
-            disabled={page.strokes.length === 0}
-            title="Clear Page Canvas"
-            style={{ color: page.strokes.length > 0 ? '#ef4444' : undefined }}
-          >
-            <Trash2 size={18} />
-          </button>
-        </div>
-      </div>
-
+    <div
+      className="canvas-wrapper"
+      ref={containerRef}
+      onClick={() => {
+        if (activePopover !== 'none') setActivePopover('none');
+      }}
+    >
       {/* Canvas Viewport */}
       <div className="canvas-viewport">
         <div
@@ -521,111 +369,258 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
             onPointerCancel={handlePointerUp}
+            style={{ touchAction: 'none' }}
           />
         </div>
       </div>
 
-      {/* Floating Bottom HUD: Multi-page management & Zoom */}
-      <div className="canvas-bottom-bar">
-        {/* Multi-Page Navigation */}
-        <div className="canvas-floating-hud">
+      {/* Floating Bottom Pill Toolbar matching reference image */}
+      <div
+        className="canvas-floating-pill-container"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Floating Popovers (expand upwards from bottom toolbar) */}
+        {activePopover === 'color' && (
+          <div className="toolbar-popover color-popover">
+            <div className="popover-arrow" />
+            <div className="palette-grid">
+              {PRESET_COLORS.map((c) => (
+                <button
+                  key={c}
+                  className={`color-bubble ${activeColor === c ? 'active' : ''}`}
+                  style={{ backgroundColor: c }}
+                  onClick={() => {
+                    setActiveColor(c);
+                    setActivePopover('none');
+                  }}
+                  title={c}
+                />
+              ))}
+              <label className="custom-color-bubble" title="Custom color">
+                <input
+                  type="color"
+                  value={activeColor}
+                  onChange={(e) => setActiveColor(e.target.value)}
+                />
+              </label>
+            </div>
+          </div>
+        )}
+
+        {activePopover === 'size' && (
+          <div className="toolbar-popover size-popover">
+            <div className="popover-arrow" />
+            <div className="size-options">
+              {STROKE_WIDTHS.map((sw) => (
+                <button
+                  key={sw.value}
+                  className={`size-option-btn ${strokeWidth === sw.value ? 'active' : ''}`}
+                  onClick={() => {
+                    setStrokeWidth(sw.value);
+                    setActivePopover('none');
+                  }}
+                  title={sw.label}
+                >
+                  <div
+                    className="size-dot-preview"
+                    style={{ width: sw.size, height: sw.size }}
+                  />
+                  <span>{sw.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {activePopover === 'background' && (
+          <div className="toolbar-popover bg-popover">
+            <div className="popover-arrow" />
+            <div className="bg-options">
+              {(['plain', 'lined', 'graph', 'dotted'] as BackgroundType[]).map((bg) => (
+                <button
+                  key={bg}
+                  className={`bg-option-btn ${page.background === bg ? 'active' : ''}`}
+                  onClick={() => handleChangeBackground(bg)}
+                >
+                  {bg.charAt(0).toUpperCase() + bg.slice(1)}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {activePopover === 'pages' && (
+          <div className="toolbar-popover pages-popover">
+            <div className="popover-arrow" />
+            <div className="pages-controls">
+              <span className="pages-label">
+                Page {pageIndex + 1} of {totalPages}
+              </span>
+              <div className="pages-buttons-row">
+                <button
+                  className="btn-page-nav"
+                  disabled={pageIndex === 0}
+                  onClick={() => onSwitchPage(pageIndex - 1)}
+                  title="Previous page"
+                >
+                  <ChevronLeft size={16} />
+                </button>
+                <button
+                  className="btn-page-nav"
+                  disabled={pageIndex >= totalPages - 1}
+                  onClick={() => onSwitchPage(pageIndex + 1)}
+                  title="Next page"
+                >
+                  <ChevronRight size={16} />
+                </button>
+                <button
+                  className="btn-page-add"
+                  onClick={() => {
+                    onAddPage();
+                    setActivePopover('none');
+                  }}
+                  title="Add new sheet"
+                >
+                  <FilePlus size={15} style={{ marginRight: 4 }} />
+                  <span>Add Page</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* The Clean Floating Rounded Pill Toolbar */}
+        <div className="floating-pill-bar">
+          {/* Pen Tool */}
           <button
-            className="hud-btn"
-            onClick={() => onSwitchPage(pageIndex - 1)}
-            disabled={pageIndex === 0}
-            title="Previous Page"
+            className={`pill-btn ${activeTool === 'pen' ? 'active' : ''}`}
+            onClick={() => {
+              setActiveTool('pen');
+              setActivePopover('none');
+            }}
+            title="Pen"
           >
-            <ChevronLeft size={18} />
+            <Pen size={17} />
           </button>
 
-          <span className="page-indicator-text">
-            Page {pageIndex + 1} of {totalPages}
-          </span>
-
+          {/* Highlighter Tool */}
           <button
-            className="hud-btn"
-            onClick={() => onSwitchPage(pageIndex + 1)}
-            disabled={pageIndex >= totalPages - 1}
-            title="Next Page"
+            className={`pill-btn ${activeTool === 'highlighter' ? 'active' : ''}`}
+            onClick={() => {
+              setActiveTool('highlighter');
+              if (activeColor === '#0f172a') setActiveColor('#fef08a');
+              setActivePopover('none');
+            }}
+            title="Highlighter"
           >
-            <ChevronRight size={18} />
+            <Highlighter size={17} />
           </button>
 
-          <button className="hud-btn" onClick={onAddPage} title="Add New Drawing Page">
-            <Plus size={18} />
+          {/* Eraser Tool */}
+          <button
+            className={`pill-btn ${activeTool === 'eraser' ? 'active' : ''}`}
+            onClick={() => {
+              setActiveTool('eraser');
+              setActivePopover('none');
+            }}
+            title="Eraser"
+          >
+            <Eraser size={17} />
           </button>
 
-          {totalPages > 1 && (
-            <button
-              className="hud-btn"
-              onClick={() => setShowDeletePageConfirm(true)}
-              title="Delete Current Page"
-              style={{ color: '#ef4444' }}
-            >
-              <FileMinus size={16} />
-            </button>
-          )}
-        </div>
+          <div className="pill-divider" />
 
-        {/* Zoom Controls */}
-        <div className="canvas-floating-hud">
+          {/* Color Picker Swatch */}
           <button
-            className="hud-btn"
-            onClick={() => setZoomLevel((z) => Math.max(0.5, Number((z - 0.15).toFixed(2))))}
-            disabled={zoomLevel <= 0.5}
-            title="Zoom Out"
+            className={`pill-btn color-trigger ${activePopover === 'color' ? 'active' : ''}`}
+            onClick={() => togglePopover('color')}
+            title="Color Palette"
           >
-            <ZoomOut size={16} />
+            <span
+              className="color-dot-indicator"
+              style={{ backgroundColor: activeColor }}
+            />
           </button>
 
-          <span className="hud-text">{Math.round(zoomLevel * 100)}%</span>
-
+          {/* Stroke Width Selector */}
           <button
-            className="hud-btn"
-            onClick={() => setZoomLevel((z) => Math.min(2.0, Number((z + 0.15).toFixed(2))))}
-            disabled={zoomLevel >= 2.0}
-            title="Zoom In"
+            className={`pill-btn size-trigger ${activePopover === 'size' ? 'active' : ''}`}
+            onClick={() => togglePopover('size')}
+            title="Stroke Thickness"
           >
-            <ZoomIn size={16} />
+            <span
+              className="stroke-dot-indicator"
+              style={{
+                width: Math.min(14, Math.max(4, strokeWidth * 2)),
+                height: Math.min(14, Math.max(4, strokeWidth * 2)),
+              }}
+            />
           </button>
 
+          {/* Paper Background Selector */}
           <button
-            className="hud-btn"
-            onClick={() => setZoomLevel(1)}
-            title="Reset Zoom (100%)"
+            className={`pill-btn ${activePopover === 'background' ? 'active' : ''}`}
+            onClick={() => togglePopover('background')}
+            title="Paper Background"
           >
-            <Maximize2 size={15} />
+            <Grid size={17} />
           </button>
 
+          <div className="pill-divider" />
+
+          {/* Undo */}
           <button
-            className="hud-btn"
-            onClick={toggleFullscreen}
-            title={isFullscreen ? 'Exit Full Screen' : 'Distraction-Free Full Screen'}
+            className="pill-btn"
+            onClick={handleUndo}
+            disabled={page.strokes.length === 0}
+            title="Undo"
           >
-            {isFullscreen ? <Minimize2 size={15} /> : <span style={{ fontSize: '0.8rem', fontWeight: 700 }}>⛶</span>}
+            <Undo2 size={17} />
+          </button>
+
+          {/* Redo */}
+          <button
+            className="pill-btn"
+            onClick={handleRedo}
+            disabled={redoStack.length === 0}
+            title="Redo"
+          >
+            <Redo2 size={17} />
+          </button>
+
+          <div className="pill-divider" />
+
+          {/* Pages Pill Button */}
+          <button
+            className={`pill-btn ${activePopover === 'pages' ? 'active' : ''}`}
+            onClick={() => togglePopover('pages')}
+            title={`Pages (${pageIndex + 1}/${totalPages})`}
+            style={{ fontSize: '0.74rem', fontWeight: 600, padding: '0 6px' }}
+          >
+            {pageIndex + 1}/{totalPages}
+          </button>
+
+          {/* Clear Page Canvas */}
+          <button
+            className="pill-btn danger-hover"
+            onClick={() => setShowClearConfirm(true)}
+            disabled={page.strokes.length === 0}
+            title="Clear Page"
+          >
+            <Trash2 size={16} />
           </button>
         </div>
       </div>
 
-      {/* Confirmation Modals */}
+      {/* Clear Canvas Confirmation Modal */}
       <ConfirmModal
         isOpen={showClearConfirm}
-        title="Clear Canvas"
-        message="Are you sure you want to erase all handwriting and drawings on this page? This action cannot be undone."
+        title="Clear Drawing Page"
+        message="Are you sure you want to clear all handwriting and drawings on this page?"
         confirmText="Clear Canvas"
         isDanger={true}
-        onConfirm={handleConfirmClear}
+        onConfirm={handleClearPage}
         onCancel={() => setShowClearConfirm(false)}
-      />
-
-      <ConfirmModal
-        isOpen={showDeletePageConfirm}
-        title="Delete Page"
-        message={`Are you sure you want to delete Page ${pageIndex + 1}? Its strokes and notes will be permanently removed.`}
-        confirmText="Delete Page"
-        isDanger={true}
-        onConfirm={onDeletePage}
-        onCancel={() => setShowDeletePageConfirm(false)}
       />
     </div>
   );

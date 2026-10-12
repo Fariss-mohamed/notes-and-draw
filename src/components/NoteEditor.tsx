@@ -1,22 +1,22 @@
 import { useState } from 'react';
 import {
-  Menu,
+  FileText,
+  PenTool,
+  ChevronLeft,
+  ChevronDown,
   Pin,
   Download,
-  Share2,
+  Trash2,
   FileDown,
+  Share2,
   Printer,
-  Columns,
-  PenTool,
-  FileText,
-  Smartphone,
-  WifiOff,
 } from 'lucide-react';
-import type { Note, Folder, NoteViewMode, CanvasPage } from '../types';
+import type { Note, Folder, CanvasPage } from '../types';
 import { createDefaultPage } from '../services/db';
 import { exportService } from '../services/export';
 import { DrawingCanvas } from './DrawingCanvas';
 import { TextEditor } from './TextEditor';
+import { ConfirmModal } from './ConfirmModal';
 
 interface NoteEditorProps {
   note: Note;
@@ -24,26 +24,28 @@ interface NoteEditorProps {
   isSidebarOpen: boolean;
   onToggleSidebar: () => void;
   onUpdateNote: (updatedNote: Note) => void;
+  onDeleteNote: () => void;
+  onBackToList?: () => void;
   isSaving: boolean;
   isOnline?: boolean;
   isStandalone?: boolean;
   canInstallPrompt?: boolean;
   onOpenInstallModal?: () => void;
+  isMobileScreen?: boolean;
 }
 
 export const NoteEditor: React.FC<NoteEditorProps> = ({
   note,
   folders,
-  isSidebarOpen,
-  onToggleSidebar,
   onUpdateNote,
+  onDeleteNote,
+  onBackToList,
   isSaving,
-  isOnline = true,
-  isStandalone = false,
-  canInstallPrompt = false,
-  onOpenInstallModal,
+  isMobileScreen = false,
 }) => {
   const [showExportMenu, setShowExportMenu] = useState(false);
+  const [showFolderDropdown, setShowFolderDropdown] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   // Active drawing page
   const activePageIndex = Math.min(
@@ -51,6 +53,17 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
     Math.max(0, note.pages.length - 1)
   );
   const activePage = note.pages[activePageIndex] || note.pages[0];
+
+  // Format date matching reference image: "Oct 12, 2026"
+  const formattedDate = new Date(note.updatedAt).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+
+  // Current folder name
+  const currentFolder = folders.find((f) => f.id === note.folderId);
+  const folderDisplayName = currentFolder ? currentFolder.name : 'No folder';
 
   // Update title
   const handleTitleChange = (newTitle: string) => {
@@ -68,6 +81,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
       folderId,
       updatedAt: Date.now(),
     });
+    setShowFolderDropdown(false);
   };
 
   // Toggle pin
@@ -79,11 +93,12 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
     });
   };
 
-  // Switch View Mode
-  const handleViewModeChange = (viewMode: NoteViewMode) => {
+  // Switch View Mode: 'text' or 'canvas' (handwriting)
+  const isHandwriting = note.viewMode === 'canvas';
+  const handleToggleViewMode = (mode: 'text' | 'canvas') => {
     onUpdateNote({
       ...note,
-      viewMode,
+      viewMode: mode,
       updatedAt: Date.now(),
     });
   };
@@ -145,133 +160,115 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
 
   return (
     <main className="main-workspace">
-      {/* Top Bar */}
+      {/* Top Bar matching reference image */}
       <header className="workspace-topbar">
+        {/* Left Side: Back button on mobile, Segmented [Text | Handwriting] Switcher, and Saved indicator */}
         <div className="topbar-left">
-          <button
-            className="btn-sidebar-toggle"
-            onClick={onToggleSidebar}
-            title={isSidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
-          >
-            <Menu size={18} />
-          </button>
-
-          <input
-            type="text"
-            className="note-title-input"
-            value={note.title}
-            onChange={(e) => handleTitleChange(e.target.value)}
-            placeholder="Untitled Note"
-          />
-
-          <select
-            className="folder-select"
-            value={note.folderId}
-            onChange={(e) => handleFolderChange(e.target.value)}
-            title="Move to category"
-          >
-            <option value="general">Category: General</option>
-            {folders.map((f) => (
-              <option key={f.id} value={f.id}>
-                Category: {f.name}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {/* View Mode Switcher */}
-        <div className="view-mode-pill">
-          <button
-            className={`mode-btn ${note.viewMode === 'hybrid' ? 'active' : ''}`}
-            onClick={() => handleViewModeChange('hybrid')}
-            title="Split View: Text on Left, Drawing Sheet on Right"
-          >
-            <Columns size={15} />
-            <span>Split Note</span>
-          </button>
-          <button
-            className={`mode-btn ${note.viewMode === 'canvas' ? 'active' : ''}`}
-            onClick={() => handleViewModeChange('canvas')}
-            title="Full Drawing Canvas: Distraction-free digital notebook paper"
-          >
-            <PenTool size={15} />
-            <span>Canvas</span>
-          </button>
-          <button
-            className={`mode-btn ${note.viewMode === 'text' ? 'active' : ''}`}
-            onClick={() => handleViewModeChange('text')}
-            title="Full Text Note: Standard distraction-free editor"
-          >
-            <FileText size={15} />
-            <span>Text</span>
-          </button>
-        </div>
-
-        {/* Right Actions: Offline badge, Auto-save status, Install, Pin, Export */}
-        <div className="topbar-right">
-          {!isOnline && (
-            <div
-              className="offline-pill"
-              title="You are offline. Notes and handwriting are safely saved in IndexedDB."
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 5,
-                padding: '3px 8px',
-                borderRadius: 'var(--radius-full)',
-                background: '#fef3c7',
-                color: '#b45309',
-                fontSize: '0.74rem',
-                fontWeight: 600,
-              }}
-            >
-              <WifiOff size={13} />
-              <span>Offline</span>
-            </div>
-          )}
-
-          <div className={`save-indicator ${isSaving ? 'saving' : 'saved'}`}>
-            <span className="save-dot" />
-            <span>{isSaving ? 'Saving...' : 'All changes saved'}</span>
-          </div>
-
-          {!isStandalone && onOpenInstallModal && (
+          {isMobileScreen && onBackToList && (
             <button
-              className="btn-topbar-action install-btn"
-              onClick={onOpenInstallModal}
-              title="Install Notes & Draw App on Android/Device"
-              style={{
-                borderColor: canInstallPrompt ? 'var(--primary)' : undefined,
-                background: canInstallPrompt ? 'var(--primary-light)' : undefined,
-                color: canInstallPrompt ? 'var(--primary)' : undefined,
-              }}
+              className="btn-back-nav"
+              onClick={onBackToList}
+              title="Back to notes list"
             >
-              <Smartphone size={15} />
-              <span>Install App</span>
+              <ChevronLeft size={22} />
             </button>
           )}
 
+          {/* Segmented Pill Switch: [ 📄 Text | ✎ Handwriting ] */}
+          <div className="segmented-toggle">
+            <button
+              className={`segmented-tab ${!isHandwriting ? 'active' : ''}`}
+              onClick={() => handleToggleViewMode('text')}
+              title="Text Mode"
+            >
+              <FileText size={15} />
+              <span>Text</span>
+            </button>
+            <button
+              className={`segmented-tab ${isHandwriting ? 'active' : ''}`}
+              onClick={() => handleToggleViewMode('canvas')}
+              title="Handwriting Mode"
+            >
+              <PenTool size={15} />
+              <span>Handwriting</span>
+            </button>
+          </div>
+
+          {/* "Saved" Status Indicator */}
+          <span className="saved-status-text">
+            {isSaving ? 'Saving...' : 'Saved'}
+          </span>
+        </div>
+
+        {/* Right Side: [ No folder ˅ ]  📌  📥  🗑️ */}
+        <div className="topbar-right">
+          {/* Folder dropdown pill */}
+          <div className="folder-dropdown-wrapper">
+            <button
+              className="btn-folder-pill"
+              onClick={() => setShowFolderDropdown(!showFolderDropdown)}
+              title="Assign folder"
+            >
+              <span>{folderDisplayName}</span>
+              <ChevronDown size={14} className="chevron-icon" />
+            </button>
+
+            {showFolderDropdown && (
+              <div
+                className="folder-dropdown-menu"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <button
+                  className={`folder-menu-item ${!note.folderId || note.folderId === 'general' ? 'active' : ''}`}
+                  onClick={() => handleFolderChange('general')}
+                >
+                  No folder
+                </button>
+                {folders.map((f) => (
+                  <button
+                    key={f.id}
+                    className={`folder-menu-item ${note.folderId === f.id ? 'active' : ''}`}
+                    onClick={() => handleFolderChange(f.id)}
+                  >
+                    <span
+                      className="folder-color-dot"
+                      style={{ backgroundColor: f.color || '#2563eb' }}
+                    />
+                    <span>{f.name}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Pin note button */}
           <button
-            className={`btn-topbar-action ${note.pinned ? 'active' : ''}`}
+            className={`btn-icon-action ${note.pinned ? 'active' : ''}`}
             onClick={handleTogglePin}
-            title={note.pinned ? 'Pinned note' : 'Pin note'}
+            title={note.pinned ? 'Unpin note' : 'Pin note'}
           >
-            <Pin size={16} fill={note.pinned ? 'currentColor' : 'none'} />
-            <span>{note.pinned ? 'Pinned' : 'Pin'}</span>
+            <Pin
+              size={17}
+              fill={note.pinned ? '#2563eb' : 'none'}
+              color={note.pinned ? '#2563eb' : '#64748b'}
+            />
           </button>
 
-          <div style={{ position: 'relative' }}>
+          {/* Export note dropdown */}
+          <div className="export-dropdown-wrapper">
             <button
-              className="btn-topbar-action"
+              className="btn-icon-action"
               onClick={() => setShowExportMenu(!showExportMenu)}
-              title="Export and download options"
+              title="Export note"
             >
-              <Download size={16} />
-              <span>Export</span>
+              <Download size={17} color="#64748b" />
             </button>
 
             {showExportMenu && (
-              <div className="export-menu-dropdown">
+              <div
+                className="export-dropdown-menu"
+                onClick={(e) => e.stopPropagation()}
+              >
                 <button
                   className="export-menu-item"
                   onClick={() => {
@@ -279,7 +276,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
                     setShowExportMenu(false);
                   }}
                 >
-                  <FileDown size={16} />
+                  <FileDown size={15} />
                   <span>Download as PDF</span>
                 </button>
                 <button
@@ -293,7 +290,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
                     setShowExportMenu(false);
                   }}
                 >
-                  <Download size={16} />
+                  <Download size={15} />
                   <span>Download Page as PNG</span>
                 </button>
                 <button
@@ -303,7 +300,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
                     setShowExportMenu(false);
                   }}
                 >
-                  <Share2 size={16} />
+                  <Share2 size={15} />
                   <span>Download Text (.md)</span>
                 </button>
                 <button
@@ -313,37 +310,55 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
                     window.print();
                   }}
                 >
-                  <Printer size={16} />
+                  <Printer size={15} />
                   <span>Print Note</span>
                 </button>
               </div>
             )}
           </div>
+
+          {/* Delete note button */}
+          <button
+            className="btn-icon-action btn-trash"
+            onClick={() => setShowDeleteConfirm(true)}
+            title="Delete note"
+          >
+            <Trash2 size={17} color="#64748b" />
+          </button>
         </div>
       </header>
 
-      {/* Editor Content Body */}
+      {/* Workspace Content */}
       <div
-        className={`workspace-content ${
-          note.viewMode === 'hybrid' ? 'split-mode' : ''
-        }`}
+        className="workspace-body"
         onClick={() => {
+          if (showFolderDropdown) setShowFolderDropdown(false);
           if (showExportMenu) setShowExportMenu(false);
         }}
       >
-        {/* Text Area (shown in Hybrid or Text mode) */}
-        {(note.viewMode === 'hybrid' || note.viewMode === 'text') && (
-          <div className="split-pane-text">
-            <TextEditor
-              content={note.content}
-              onChange={handleContentChange}
-            />
-          </div>
-        )}
+        {!isHandwriting ? (
+          /* Text Document View matching reference image */
+          <div className="text-document-view">
+            <div className="document-inner">
+              {/* Note Title Input */}
+              <input
+                type="text"
+                className="document-title-input"
+                value={note.title}
+                onChange={(e) => handleTitleChange(e.target.value)}
+                placeholder="Untitled"
+              />
 
-        {/* Drawing Canvas Area (shown in Hybrid or Canvas mode) */}
-        {(note.viewMode === 'hybrid' || note.viewMode === 'canvas') && (
-          <div className="split-pane-canvas">
+              {/* Note Date Subtitle */}
+              <div className="document-date-subtitle">{formattedDate}</div>
+
+              {/* Text Body Editor */}
+              <TextEditor content={note.content} onChange={handleContentChange} />
+            </div>
+          </div>
+        ) : (
+          /* Handwriting Canvas View */
+          <div className="canvas-view-container">
             <DrawingCanvas
               page={activePage}
               pageIndex={activePageIndex}
@@ -356,6 +371,17 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
           </div>
         )}
       </div>
+
+      {/* Delete Confirmation Modal */}
+      <ConfirmModal
+        isOpen={showDeleteConfirm}
+        title="Delete Note"
+        message="Are you sure you want to delete this note? This action cannot be undone."
+        confirmText="Delete Note"
+        isDanger={true}
+        onConfirm={onDeleteNote}
+        onCancel={() => setShowDeleteConfirm(false)}
+      />
     </main>
   );
 };

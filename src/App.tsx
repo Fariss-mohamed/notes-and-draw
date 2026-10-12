@@ -19,9 +19,34 @@ export function App() {
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
+  // Mobile responsiveness state
+  const [isMobileScreen, setIsMobileScreen] = useState<boolean>(() =>
+    typeof window !== 'undefined' ? window.innerWidth < 768 : false
+  );
+  const [mobileView, setMobileView] = useState<'list' | 'editor'>('list');
+
   const { canInstall, isStandalone, isOnline, triggerInstall } = usePWA();
 
   const saveTimerRef = useRef<number | null>(null);
+
+  // Screen size detection
+  useEffect(() => {
+    const handleResize = () => {
+      const isMobile = window.innerWidth < 768;
+      setIsMobileScreen(isMobile);
+      if (!isMobile) {
+        setIsSidebarOpen(true);
+      }
+    };
+
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    window.addEventListener('orientationchange', handleResize);
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      window.removeEventListener('orientationchange', handleResize);
+    };
+  }, []);
 
   // Load notes and folders from IndexedDB on startup
   useEffect(() => {
@@ -46,11 +71,6 @@ export function App() {
     }
 
     initData();
-
-    // Auto-close sidebar on small screens
-    if (window.innerWidth < 800) {
-      setIsSidebarOpen(false);
-    }
   }, []);
 
   // Active note instance
@@ -94,7 +114,7 @@ export function App() {
   // Create New Note
   const handleCreateNote = async () => {
     const targetFolder =
-      activeFolderId !== 'all' && activeFolderId !== 'pinned'
+      activeFolderId !== 'all' && activeFolderId !== 'pinned' && activeFolderId !== 'unfiled'
         ? activeFolderId
         : 'general';
 
@@ -104,10 +124,8 @@ export function App() {
     setActiveNoteId(newNote.id);
     await storage.saveNote(newNote);
 
-    // On mobile, collapse sidebar on note creation
-    if (window.innerWidth < 800) {
-      setIsSidebarOpen(false);
-    }
+    // Switch view to editor on mobile
+    setMobileView('editor');
   };
 
   // Delete Note
@@ -125,6 +143,9 @@ export function App() {
         setNotes([freshNote]);
         setActiveNoteId(freshNote.id);
         await storage.saveNote(freshNote);
+      }
+      if (isMobileScreen) {
+        setMobileView('list');
       }
     }
   };
@@ -176,78 +197,81 @@ export function App() {
       >
         <div
           style={{
-            width: 20,
-            height: 20,
-            border: '2px solid #2563eb',
+            width: 24,
+            height: 24,
+            border: '2.5px solid #2563eb',
             borderTopColor: 'transparent',
             borderRadius: '50%',
             animation: 'spin 0.8s linear infinite',
           }}
         />
-        <span>Loading NoteCraft...</span>
+        <span>Loading Notebook...</span>
       </div>
     );
   }
 
-  return (
-    <div className="app-container">
-      {/* Sidebar */}
-      <Sidebar
-        isOpen={isSidebarOpen}
-        onClose={() => setIsSidebarOpen(false)}
-        notes={notes}
-        activeNoteId={activeNoteId}
-        onSelectNote={(id) => {
-          setActiveNoteId(id);
-          if (window.innerWidth < 800) setIsSidebarOpen(false);
-        }}
-        onCreateNote={handleCreateNote}
-        onDeleteNote={handleDeleteNote}
-        onTogglePin={handleTogglePin}
-        folders={folders}
-        activeFolderId={activeFolderId}
-        onSelectFolder={setActiveFolderId}
-        onOpenFolderModal={() => setIsFolderModalOpen(true)}
-        isOnline={isOnline}
-        isStandalone={isStandalone}
-        canInstallPrompt={canInstall}
-        onOpenInstallModal={() => setIsInstallModalOpen(true)}
-      />
+  // Determine whether sidebar and editor should be visible
+  const showSidebar = !isMobileScreen ? isSidebarOpen : mobileView === 'list';
+  const showEditor = !isMobileScreen ? true : mobileView === 'editor';
 
-      {/* Main Workspace */}
-      {activeNote ? (
-        <NoteEditor
-          note={activeNote}
+  return (
+    <div className={`app-container ${isMobileScreen ? 'mobile-mode' : 'desktop-mode'}`}>
+      {/* Sidebar / Notes List */}
+      {showSidebar && (
+        <Sidebar
+          isOpen={true}
+          onClose={() => setIsSidebarOpen(false)}
+          notes={notes}
+          activeNoteId={activeNoteId}
+          onSelectNote={(id) => {
+            setActiveNoteId(id);
+            setMobileView('editor');
+          }}
+          onCreateNote={handleCreateNote}
+          onDeleteNote={handleDeleteNote}
+          onTogglePin={handleTogglePin}
           folders={folders}
-          isSidebarOpen={isSidebarOpen}
-          onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
-          onUpdateNote={handleUpdateNote}
-          isSaving={isSaving}
+          activeFolderId={activeFolderId}
+          onSelectFolder={setActiveFolderId}
+          onOpenFolderModal={() => setIsFolderModalOpen(true)}
           isOnline={isOnline}
           isStandalone={isStandalone}
           canInstallPrompt={canInstall}
           onOpenInstallModal={() => setIsInstallModalOpen(true)}
+          isMobileScreen={isMobileScreen}
         />
-      ) : (
-        <main
-          className="main-workspace"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            flexDirection: 'column',
-            gap: 16,
-          }}
-        >
-          <BookOpen size={48} color="var(--border-medium)" />
-          <h2 style={{ fontSize: '1.25rem', fontWeight: 600, color: 'var(--text-main)' }}>
-            No Note Selected
-          </h2>
-          <button className="btn-primary" onClick={handleCreateNote}>
-            <Plus size={18} style={{ marginRight: 6 }} />
-            Create Your First Note
-          </button>
-        </main>
+      )}
+
+      {/* Main Workspace / Note Editor */}
+      {showEditor && (
+        activeNote ? (
+          <NoteEditor
+            note={activeNote}
+            folders={folders}
+            isSidebarOpen={isSidebarOpen}
+            onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
+            onUpdateNote={handleUpdateNote}
+            onDeleteNote={() => handleDeleteNote(activeNote.id)}
+            onBackToList={() => setMobileView('list')}
+            isSaving={isSaving}
+            isOnline={isOnline}
+            isStandalone={isStandalone}
+            canInstallPrompt={canInstall}
+            onOpenInstallModal={() => setIsInstallModalOpen(true)}
+            isMobileScreen={isMobileScreen}
+          />
+        ) : (
+          <main className="main-workspace empty-workspace">
+            <BookOpen size={48} color="var(--border-medium)" />
+            <h2 style={{ fontSize: '1.25rem', fontWeight: 600, color: 'var(--text-main)' }}>
+              No Note Selected
+            </h2>
+            <button className="btn-primary" onClick={handleCreateNote}>
+              <Plus size={18} style={{ marginRight: 6 }} />
+              Create Note
+            </button>
+          </main>
+        )
       )}
 
       {/* New Folder Modal */}
