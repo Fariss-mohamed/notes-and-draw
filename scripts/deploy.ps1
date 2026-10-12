@@ -15,28 +15,28 @@ $headers = @{
 
 Write-Host "==> Verifying GitHub Authentication..."
 try {
-    $repoData = Invoke-RestMethod -Uri "https://api.github.com/repos/$owner/$repo" -Headers $headers
-    Write-Host "Authenticated successfully as repository: $($repoData.full_name)"
+    $repoData = Invoke-RestMethod -Uri ("https://api.github.com/repos/{0}/{1}" -f $owner, $repo) -Headers $headers
+    Write-Host ("Authenticated successfully as repository: {0}" -f $repoData.full_name)
 } catch {
-    Write-Error "Authentication failed: $($_.Exception.Message)"
+    Write-Error ("Authentication failed: {0}" -f $_.Exception.Message)
     exit 1
 }
 
 # 1. Push main branch via git using token
 Write-Host "==> Pushing source commits to main branch..."
-$pushUrl = "https://$($owner):$($Token)@github.com/$owner/$repo.git"
+$pushUrl = ("https://{0}:{1}@github.com/{0}/{1}.git" -f $owner, $Token, $repo)
 try {
     & "C:\Users\fariss\PortableGit\cmd\git.exe" push $pushUrl main
     Write-Host "Source commits pushed to main branch successfully."
 } catch {
-    Write-Warning "Direct git push failed: $($_.Exception.Message). Continuing with API upload to gh-pages..."
+    Write-Warning ("Direct git push notice: {0}. Continuing with API upload..." -f $_.Exception.Message)
 }
 
 # 2. Upload dist files to gh-pages branch
-$distPath = Join-Path $PSScriptRoot "..\dist"
+$distPath = (Resolve-Path (Join-Path $PSScriptRoot "..\dist")).Path
 $files = Get-ChildItem -Path $distPath -Recurse -File
 
-Write-Host "==> Uploading $($files.Count) dist files to '$branch' branch via GitHub API..."
+Write-Host ("==> Uploading {0} dist files to '{1}' branch via GitHub API..." -f $files.Count, $branch)
 
 foreach ($file in $files) {
     $relativePath = $file.FullName.Substring($distPath.Length + 1).Replace('\', '/')
@@ -45,15 +45,16 @@ foreach ($file in $files) {
 
     # Check if file exists on gh-pages branch to get its SHA
     $fileSha = $null
+    $checkUrl = "https://api.github.com/repos/{0}/{1}/contents/{2}?ref={3}" -f $owner, $repo, $relativePath, $branch
     try {
-        $existing = Invoke-RestMethod -Uri "https://api.github.com/repos/$owner/$repo/contents/$relativePath`?ref=$branch" -Headers $headers -ErrorAction Stop
+        $existing = Invoke-RestMethod -Uri $checkUrl -Headers $headers -ErrorAction Stop
         $fileSha = $existing.sha
     } catch {
-        # File doesn't exist yet on gh-pages, will create new
+        # File doesn't exist yet on gh-pages
     }
 
     $bodyObj = @{
-        message = "Deploy fix for PWA installability: $relativePath"
+        message = ("Deploy PWA fix: {0}" -f $relativePath)
         content = $contentBase64
         branch = $branch
     }
@@ -62,13 +63,14 @@ foreach ($file in $files) {
     }
 
     $jsonBody = $bodyObj | ConvertTo-Json -Compress
+    $putUrl = "https://api.github.com/repos/{0}/{1}/contents/{2}" -f $owner, $repo, $relativePath
 
     try {
-        $result = Invoke-RestMethod -Uri "https://api.github.com/repos/$owner/$repo/contents/$relativePath" -Method Put -Headers $headers -Body $jsonBody -ContentType "application/json"
-        Write-Host "  ✓ Uploaded: $relativePath"
+        $result = Invoke-RestMethod -Uri $putUrl -Method Put -Headers $headers -Body $jsonBody -ContentType "application/json"
+        Write-Host ("  [OK] Uploaded: {0}" -f $relativePath)
     } catch {
-        Write-Host "  ✗ Failed $relativePath : $($_.Exception.Message)"
+        Write-Host ("  [FAIL] {0}: {1}" -f $relativePath, $_.Exception.Message)
     }
 }
 
-Write-Host "==> All files deployed to $branch branch."
+Write-Host "==> All files deployed to gh-pages branch."
