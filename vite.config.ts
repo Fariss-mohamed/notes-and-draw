@@ -20,6 +20,7 @@ export default defineConfig({
         'apple-touch-icon.png',
       ],
       manifest: {
+        id: `/${repoName}/`,
         name: 'Notes & Draw',
         short_name: 'Notes',
         description: 'Clean, modern, lightweight notes and digital handwriting drawing notebook for Android and web.',
@@ -33,25 +34,31 @@ export default defineConfig({
         categories: ['productivity', 'education', 'utilities'],
         icons: [
           {
-            src: '/pwa-192x192.png',
+            src: `/${repoName}/pwa-192x192.png`,
             sizes: '192x192',
             type: 'image/png',
             purpose: 'any',
           },
           {
-            src: '/pwa-512x512.png',
+            src: `/${repoName}/pwa-192x192.png`,
+            sizes: '192x192',
+            type: 'image/png',
+            purpose: 'maskable',
+          },
+          {
+            src: `/${repoName}/pwa-512x512.png`,
             sizes: '512x512',
             type: 'image/png',
             purpose: 'any',
           },
           {
-            src: '/pwa-512x512-maskable.png',
+            src: `/${repoName}/pwa-512x512-maskable.png`,
             sizes: '512x512',
             type: 'image/png',
             purpose: 'maskable',
           },
           {
-            src: '/apple-touch-icon.png',
+            src: `/${repoName}/apple-touch-icon.png`,
             sizes: '180x180',
             type: 'image/png',
           },
@@ -62,7 +69,7 @@ export default defineConfig({
             short_name: 'New',
             description: 'Create a new note or digital drawing',
             url: `/${repoName}/?action=new`,
-            icons: [{ src: '/pwa-192x192.png', sizes: '192x192' }],
+            icons: [{ src: `/${repoName}/pwa-192x192.png`, sizes: '192x192' }],
           },
         ],
       },

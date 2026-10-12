@@ -1,9 +1,10 @@
 {
+  "id": "/notes-and-draw/",
   "name": "Notes & Draw",
   "short_name": "Notes",
   "description": "Clean, modern, lightweight notes and digital handwriting drawing notebook for Android and web.",
-  "start_url": "/",
-  "scope": "/",
+  "start_url": "/notes-and-draw/",
+  "scope": "/notes-and-draw/",
   "display": "standalone",
   "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
   "orientation": "any",
@@ -13,25 +14,31 @@
   "categories": ["productivity", "education", "utilities"],
   "icons": [
     {
-      "src": "/pwa-192x192.png",
+      "src": "/notes-and-draw/pwa-192x192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/pwa-512x512.png",
+      "src": "/notes-and-draw/pwa-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/notes-and-draw/pwa-512x512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/pwa-512x512-maskable.png",
+      "src": "/notes-and-draw/pwa-512x512-maskable.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
     },
     {
-      "src": "/apple-touch-icon.png",
+      "src": "/notes-and-draw/apple-touch-icon.png",
       "sizes": "180x180",
       "type": "image/png"
     }
@@ -41,8 +48,8 @@
       "name": "New Note",
       "short_name": "New",
       "description": "Create a new note or digital drawing",
-      "url": "/?action=new",
-      "icons": [{ "src": "/pwa-192x192.png", "sizes": "192x192" }]
+      "url": "/notes-and-draw/?action=new",
+      "icons": [{ "src": "/notes-and-draw/pwa-192x192.png", "sizes": "192x192" }]
     }
   ]
 }
